@@ -1,5 +1,10 @@
+import os
 
-test_data_path = "dataset/test.csv"                            #Directory where test data is stored
-test_label_path = "dataset/test_labels.csv"                        #Directory where test labels are stored
-validation_path = "dataset/validation.csv"                      #Directory where validation data is stored
-train_data_path = "dataset/jigsaw-toxic-comment-train.csv"      #Directory where training data is stored
+# Get the absolute path to the project root directory
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+
+# Define dataset paths
+test_data_path = os.path.join(PROJECT_ROOT, "dataset", "test.csv")
+test_label_path = os.path.join(PROJECT_ROOT, "dataset", "test_labels.csv")
+validation_path = os.path.join(PROJECT_ROOT, "dataset", "validation.csv")
+train_data_path = os.path.join(PROJECT_ROOT, "dataset", "jigsaw-toxic-comment-train.csv")

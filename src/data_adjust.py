@@ -1,6 +1,7 @@
 import config
 import pandas as pd
 
+print(config.train_data_path)
 df_train = pd.read_csv(config.train_data_path, usecols=['comment_text', 'toxic'])
 
 
