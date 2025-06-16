@@ -3,8 +3,65 @@ import pandas as pd
 from datasets import Dataset
 from transformers import XLMRobertaTokenizer, AutoTokenizer
 from config import train_data_path, test_data_path, test_label_path, validation_path
-from preprocessor import prepare_train_data, prepare_test_validation_data
+from preprocessor import get_preprocessed_data
 from tqdm import tqdm
+import numpy as np
+
+class ToxicityTokenizer:
+    def __init__(self, model_name="xlm-roberta-base", max_length=128):
+        """
+        Initialize the tokenizer
+        Args:
+            model_name (str): Name of the pretrained model to use
+            max_length (int): Maximum sequence length
+        """
+        self.tokenizer = AutoTokenizer.from_pretrained(model_name)
+        self.max_length = max_length
+
+    def tokenize_batch(self, examples):
+        """
+        Tokenize a batch of examples
+        Args:
+            examples: Batch of examples from Dataset
+        Returns:
+            dict: Tokenized batch
+        """
+        return self.tokenizer(
+            examples['clean_text'],
+            padding='max_length',
+            truncation=True,
+            max_length=self.max_length,
+            return_tensors=None  # Return lists instead of tensors
+        )
+
+    def prepare_dataset(self, df, dataset_name=""):
+        """
+        Convert dataframe to tokenized Dataset
+        Args:
+            df (pandas.DataFrame): Input dataframe
+            dataset_name (str): Name of the dataset for progress info
+        Returns:
+            datasets.Dataset: Tokenized dataset
+        """
+        print(f"\nPreparing {dataset_name} dataset...")
+        
+        # Convert DataFrame to Dataset
+        dataset = Dataset.from_pandas(df)
+        
+        # Tokenize the dataset
+        tokenized_dataset = dataset.map(
+            self.tokenize_batch,
+            batched=True,
+            batch_size=1000,
+            remove_columns=dataset.column_names,
+            desc=f"Tokenizing {dataset_name} data"
+        )
+        
+        # Convert labels to float values
+        labels = df['toxic'].astype(float).values
+        tokenized_dataset = tokenized_dataset.add_column("labels", labels)
+        
+        return tokenized_dataset
 
 def load_and_preprocess_data():
     """
@@ -28,46 +85,38 @@ def load_and_preprocess_data():
 
     return df_train, df_test, df_validation
 
-class ToxicityDataTokenizer:
-    def __init__(self, model_name="xlm-roberta-base", max_length=128):
-        self.tokenizer = AutoTokenizer.from_pretrained(model_name)
-        self.max_length = max_length
-
-    def tokenize_batch(self, examples):
-        """
-        Tokenize a batch of examples
-        Args:
-            examples: Batch of examples from Dataset
-        Returns:
-            dict: Tokenized batch
-        """
-        return self.tokenizer(
-            examples['clean_text'],
-            padding=True,
-            truncation=True,
-            max_length=self.max_length,
-            return_tensors="pt"
-        )
-
-    def prepare_dataset(self, df):
-        """
-        Convert dataframe to Dataset and tokenize
-        Args:
-            df (pandas.DataFrame): Input dataframe
-        Returns:
-            datasets.Dataset: Tokenized dataset
-        """
-        # Convert DataFrame to Dataset
-        dataset = Dataset.from_pandas(df)
-        
-        # Tokenize the dataset
-        tokenized_dataset = dataset.map(
-            self.tokenize_batch,
-            batched=True,
-            remove_columns=dataset.column_names
-        )
-
-        return tokenized_dataset
+def get_tokenized_data():
+    """
+    Get tokenized versions of all datasets
+    Returns:
+        tuple: (train_tokenized, test_tokenized, validation_tokenized)
+    """
+    # Get preprocessed data
+    train_processed, test_processed, validation_processed = get_preprocessed_data()
+    
+    # Initialize tokenizer
+    tokenizer = ToxicityTokenizer()
+    
+    # Tokenize all datasets
+    train_tokenized = tokenizer.prepare_dataset(train_processed, "training")
+    test_tokenized = tokenizer.prepare_dataset(test_processed, "test")
+    validation_tokenized = tokenizer.prepare_dataset(validation_processed, "validation")
+    
+    # Print tokenization results
+    print("\nTokenization Results:")
+    print(f"Training data: {len(train_tokenized)} sequences")
+    print(f"Test data: {len(test_tokenized)} sequences")
+    print(f"Validation data: {len(validation_tokenized)} sequences")
+    
+    # Calculate sequence length statistics
+    train_lengths = [len(x) for x in train_tokenized['input_ids']]
+    print(f"\nSequence length statistics:")
+    print(f"Mean: {np.mean(train_lengths):.1f}")
+    print(f"Median: {np.median(train_lengths):.1f}")
+    print(f"95th percentile: {np.percentile(train_lengths, 95):.1f}")
+    print(f"Max: {np.max(train_lengths)}")
+    
+    return train_tokenized, test_tokenized, validation_tokenized
 
 def main():
     # Clear GPU memory if available
@@ -78,7 +127,7 @@ def main():
     df_train, df_test, df_validation = load_and_preprocess_data()
 
     # Initialize tokenizer
-    tokenizer = ToxicityDataTokenizer()
+    tokenizer = ToxicityTokenizer()
 
     # Tokenize datasets
     print("Tokenizing datasets...")
@@ -94,4 +143,17 @@ def main():
     return train_dataset, test_dataset, validation_dataset
 
 if __name__ == "__main__":
-    train_dataset, test_dataset, validation_dataset = main()
+    # Clear GPU memory if available
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+        
+    # Get tokenized datasets
+    train_tokenized, test_tokenized, validation_tokenized = get_tokenized_data()
+    
+    print("\nSample tokenized data:")
+    print("\nTraining sample:")
+    print(train_tokenized[0])
+    print("\nTest sample:")
+    print(test_tokenized[0])
+    print("\nValidation sample:")
+    print(validation_tokenized[0])
