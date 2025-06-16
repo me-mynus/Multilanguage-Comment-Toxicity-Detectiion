@@ -1,0 +1,8 @@
+Total Samples: 8000
+Toxic Samples: 1230
+Non-toxic Samples: 6770
+Toxic Ratio: 0.15375
+Average Text Length: 368.988
+Median Text Length: 278.0
+Max Text Length: 1785
+Min Text Length: 39

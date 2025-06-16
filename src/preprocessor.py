@@ -1,7 +1,13 @@
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, MarkupResemblesLocatorWarning
 import re
 import pandas as pd
 from tqdm import tqdm
+import warnings
+import html
+from data_adjust import df_train, df_test, df_validation
+
+# Suppress BeautifulSoup warnings about markup resembling a URL
+warnings.filterwarnings('ignore', category=MarkupResemblesLocatorWarning)
 
 def clean_text(text):
     """
@@ -14,41 +20,45 @@ def clean_text(text):
     if not isinstance(text, str):
         return ""
     
-    # Remove HTML tags
-    text = BeautifulSoup(text, "html.parser").get_text()
+    # First, unescape HTML entities
+    text = html.unescape(text)
+    
+    try:
+        # Remove HTML tags safely
+        soup = BeautifulSoup(text, "html.parser", from_encoding='utf-8')
+        text = soup.get_text(separator=' ')
+    except Exception as e:
+        # If BeautifulSoup fails, use regex as fallback
+        text = re.sub(r'<[^>]+>', ' ', text)
 
     # Remove URLs
     text = re.sub(r'http\S+|www\S+|https\S+', '', text, flags=re.MULTILINE)
     
+    # Remove special characters and numbers (keep letters and basic punctuation)
+    text = re.sub(r'[^a-zA-Z\s\.,!?\'"]+', ' ', text)
+    
     # Remove repeated punctuation
     text = re.sub(r'([!?.]){2,}', r'\1', text)
     
-    # Remove excessive whitespace
+    # Remove extra whitespace
     text = ' '.join(text.split())
     
     return text.strip()
 
-def detect_language(text):
+def preprocess_data(df, dataset_name=""):
     """
-    Detect the language of the text
+    Preprocess the dataframe
     Args:
-        text (str): Input text
+        df (pandas.DataFrame): Input dataframe with comment_text and toxic columns
+        dataset_name (str): Name of the dataset for progress bar
     Returns:
-        str: Language code
+        pandas.DataFrame: Cleaned dataframe
     """
-    try:
-        return detect(text)
-    except:
-        return 'unknown'
-
-def prepare_train_data(df):
-    """
-    Prepare the training dataframe
-    Args:
-        df (pandas.DataFrame): Input dataframe with toxic columns
-    Returns:
-        pandas.DataFrame: Cleaned dataframe with binary labels
-    """
+    print(f"\nPreprocessing {dataset_name} data...")
+    
+    # Create a copy to avoid modifying the original
+    df = df.copy()
+    
     # Drop rows with missing values
     df = df.dropna(subset=['comment_text'])
     
@@ -56,44 +66,41 @@ def prepare_train_data(df):
     tqdm.pandas(desc="Cleaning text")
     df['clean_text'] = df['comment_text'].progress_apply(clean_text)
     
-    # Create binary toxicity label (1 if any toxic label is 1)
-    toxic_columns = ['toxic', 'severe_toxic', 'obscene', 'threat', 'insult', 'identity_hate']
-    df['toxic'] = df[toxic_columns].max(axis=1)
-    
-    # Detect language
-    tqdm.pandas(desc="Detecting language")
-    df['lang'] = df['clean_text'].progress_apply(detect_language)
-    
     # Remove empty strings after cleaning
     df = df[df['clean_text'].str.strip() != '']
     
-    return df[['clean_text', 'lang', 'toxic']]
+    # Keep only required columns
+    return df[['clean_text', 'toxic']]
 
-def prepare_test_validation_data(df):
+def get_preprocessed_data():
     """
-    Prepare the test/validation dataframe
-    Args:
-        df (pandas.DataFrame): Input dataframe with comment_text/content column
+    Get preprocessed versions of all datasets
     Returns:
-        pandas.DataFrame: Cleaned dataframe
+        tuple: (train_processed, test_processed, validation_processed)
     """
-    # Handle different column names
-    text_col = 'comment_text' if 'comment_text' in df.columns else 'content'
-    df = df.rename(columns={text_col: 'clean_text'})
     
-    # Drop rows with missing values
-    df = df.dropna(subset=['clean_text'])
     
-    # Clean the text
-    tqdm.pandas(desc="Cleaning text")
-    df['clean_text'] = df['clean_text'].progress_apply(clean_text)
+    # Process all datasets
+    train_processed = preprocess_data(df_train, "training")
+    test_processed = preprocess_data(df_test, "test")
+    validation_processed = preprocess_data(df_validation, "validation")
     
-    # Add language if not present
-    if 'lang' not in df.columns:
-        tqdm.pandas(desc="Detecting language")
-        df['lang'] = df['clean_text'].progress_apply(detect_language)
+    # Print preprocessing results
+    print("\nPreprocessing Results:")
+    print(f"Training data: {len(df_train)} -> {len(train_processed)} samples")
+    print(f"Test data: {len(df_test)} -> {len(test_processed)} samples")
+    print(f"Validation data: {len(df_validation)} -> {len(validation_processed)} samples")
     
-    # Remove empty strings after cleaning
-    df = df[df['clean_text'].str.strip() != '']
+    return train_processed, test_processed, validation_processed
+
+if __name__ == "__main__":
+    # If run directly, preprocess and show sample results
+    train_processed, test_processed, validation_processed = get_preprocessed_data()
     
-    return df[['clean_text', 'lang', 'toxic'] if 'toxic' in df.columns else ['clean_text', 'lang']]
+    print("\nSample processed data:")
+    print("\nTraining sample:")
+    print(train_processed.head())
+    print("\nTest sample:")
+    print(test_processed.head())
+    print("\nValidation sample:")
+    print(validation_processed.head())
